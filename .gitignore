@@ -1,0 +1,58 @@
+# Logs e cache
+*.log
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Credenciais e configurações sensíveis
+config/*.json
+config/.env
+.env
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Node.js (se usar ferramentas de build)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Arquivos temporários
+*.tmp
+*.temp
+.cache/
+
+# Build e dist
+dist/
+build/
+*.egg-info/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+
+# Pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
