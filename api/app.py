@@ -132,15 +132,9 @@ def get_chamados():
         error_message = str(e)
         print(f"❌ Erro no endpoint /api/chamados: {error_message}")
         import traceback
-        traceback.print_exc()
-        # Dicas específicas quando falta permissão ou ID incorreto
-        hint = 'Verifique o ID do arquivo no Google Drive, permissões de compartilhamento com o e-mail do service account e o caminho para as credenciais.'
-        low = error_message.lower()
-        if 'permission' in low or 'not have permission' in low or '403' in low:
-            hint = 'Acesso negado ao arquivo. Compartilhe o arquivo no Drive com o e-mail da Service Account como Viewer.'
-        elif 'file not found' in low or '404' in low:
-            hint = 'Arquivo não encontrado. Confira o GOOGLE_SHEETS_ID.'
-
+        error_traceback = traceback.format_exc()
+        print(error_traceback)
+        
         # Retorna dados do cache se disponível, mesmo que expirado
         if cache['data'] is not None:
             print("⚠️ Retornando dados do cache (podem estar desatualizados)")
@@ -148,12 +142,17 @@ def get_chamados():
             cache_data['warning'] = 'Dados podem estar desatualizados devido a erro na atualização'
             return jsonify(cache_data)
         
-        # Se não há cache, retorna erro claro (sem modo demonstração)
+        # Se não há cache, retorna erro detalhado
         return jsonify({
             'error': True,
             'message': 'Falha ao obter dados dos chamados',
             'details': error_message,
-            'hint': hint
+            'traceback': error_traceback if os.getenv('FLASK_ENV') == 'development' else 'Veja os logs da função',
+            'environment': {
+                'SUPABASE_URL': bool(os.getenv('SUPABASE_URL')),
+                'SUPABASE_KEY': bool(os.getenv('SUPABASE_KEY')),
+                'DATA_SOURCE': os.getenv('DATA_SOURCE')
+            }
         }), 500
 
 
