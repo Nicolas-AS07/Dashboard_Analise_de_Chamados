@@ -11,17 +11,22 @@ from dotenv import load_dotenv
 from supabase_client import create_supabase_client
 
 
-# Carrega variáveis de ambiente a partir do caminho absoluto do arquivo
+# Carrega variáveis de ambiente (produção usa variáveis da Vercel, desenvolvimento usa .env)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.normpath(os.path.join(BASE_DIR, '..', 'config', '.env'))
-print(f"🔧 Carregando .env de: {ENV_PATH} (existe? {os.path.exists(ENV_PATH)})")
-load_dotenv(dotenv_path=ENV_PATH, override=True)
+
+# Só tenta carregar .env se o arquivo existir (desenvolvimento local)
+if os.path.exists(ENV_PATH):
+    print(f"🔧 Carregando .env de: {ENV_PATH}")
+    load_dotenv(dotenv_path=ENV_PATH, override=True)
+else:
+    print(f"📦 Ambiente de produção - usando variáveis de ambiente do sistema")
 
 # Configuração da aplicação Flask
 app = Flask(__name__)
 
 # Configuração CORS para permitir requisições do frontend
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8080,http://127.0.0.1:8000,http://localhost:8000').split(',')
+cors_origins = os.getenv('CORS_ORIGINS', '*').split(',')
 CORS(app, origins=cors_origins, resources={r"/api/*": {"origins": "*"}})
 
 # Cache simples em memória (para evitar muitas chamadas à API do Google)
@@ -91,6 +96,19 @@ def get_chamados():
     Utiliza cache para otimizar performance
     """
     try:
+        # Verifica variáveis de ambiente críticas
+        supabase_url = os.getenv('SUPABASE_URL')
+        supabase_key = os.getenv('SUPABASE_KEY')
+        
+        if not supabase_url or not supabase_key:
+            error_msg = f"Variáveis de ambiente faltando - URL: {bool(supabase_url)}, KEY: {bool(supabase_key)}"
+            print(f"❌ {error_msg}")
+            return jsonify({
+                'error': True,
+                'message': 'Configuração incompleta',
+                'details': error_msg
+            }), 500
+        
         # Verifica se pode usar cache
         if is_cache_valid():
             print("📋 Dados servidos do cache")
@@ -113,6 +131,8 @@ def get_chamados():
     except Exception as e:
         error_message = str(e)
         print(f"❌ Erro no endpoint /api/chamados: {error_message}")
+        import traceback
+        traceback.print_exc()
         # Dicas específicas quando falta permissão ou ID incorreto
         hint = 'Verifique o ID do arquivo no Google Drive, permissões de compartilhamento com o e-mail do service account e o caminho para as credenciais.'
         low = error_message.lower()
