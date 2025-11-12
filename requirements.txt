@@ -7,9 +7,8 @@ flask-cors==4.0.0
 python-dotenv==1.0.0
 gunicorn==21.2.0
 
-# Supabase Client
+# Supabase Client (deixar pip resolver dependências)
 supabase==2.3.0
-postgrest==0.14.0
 
 # Data Processing
 numpy>=1.26.0,<2.0
