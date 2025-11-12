@@ -81,14 +81,121 @@ def home():
     """Endpoint raiz com informações da API"""
     return jsonify({
         'message': 'TechHelp Dashboard API',
-        'version': '1.0.0',
+        'version': '2.0.0',
         'status': 'online',
         'endpoints': [
+            'GET /api/test - Teste de diagnóstico completo',
             'GET /api/chamados - Retorna dados dos chamados',
             'GET /api/health - Verifica status da API'
         ],
         'timestamp': datetime.now().isoformat()
     })
+
+
+@app.route('/api/test')
+def test_supabase():
+    """
+    Endpoint de teste para diagnosticar problemas de conexão e imports
+    """
+    diagnostics = {
+        'timestamp': datetime.now().isoformat(),
+        'environment': {
+            'SUPABASE_URL': os.getenv('SUPABASE_URL', 'NOT SET')[:50] + '...' if os.getenv('SUPABASE_URL') else 'NOT SET',
+            'SUPABASE_KEY_LENGTH': len(os.getenv('SUPABASE_KEY', '')) if os.getenv('SUPABASE_KEY') else 0,
+            'DATA_SOURCE': os.getenv('DATA_SOURCE', 'NOT SET'),
+            'FLASK_ENV': os.getenv('FLASK_ENV', 'NOT SET'),
+            'PYTHON_VERSION': sys.version.split()[0]
+        },
+        'tests': {}
+    }
+    
+    try:
+        # Teste 1: Variáveis de ambiente
+        has_url = bool(os.getenv('SUPABASE_URL'))
+        has_key = bool(os.getenv('SUPABASE_KEY'))
+        diagnostics['tests']['1_env_vars'] = {
+            'status': 'PASS' if (has_url and has_key) else 'FAIL',
+            'message': f"URL: {'✅' if has_url else '❌'}, KEY: {'✅' if has_key else '❌'}"
+        }
+        
+        if not has_url or not has_key:
+            diagnostics['overall'] = 'FAIL: Variáveis de ambiente não configuradas'
+            return jsonify(diagnostics), 500
+        
+        # Teste 2: Import supabase
+        try:
+            from supabase import create_client as supabase_create_client
+            diagnostics['tests']['2_import_supabase'] = {
+                'status': 'PASS',
+                'message': 'Módulo supabase OK'
+            }
+        except Exception as e:
+            diagnostics['tests']['2_import_supabase'] = {
+                'status': 'FAIL',
+                'message': str(e)
+            }
+            diagnostics['overall'] = 'FAIL: Não foi possível importar supabase'
+            return jsonify(diagnostics), 500
+        
+        # Teste 3: Criar cliente
+        try:
+            client = supabase_create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
+            diagnostics['tests']['3_create_client'] = {
+                'status': 'PASS',
+                'message': 'Cliente criado'
+            }
+        except Exception as e:
+            diagnostics['tests']['3_create_client'] = {
+                'status': 'FAIL',
+                'message': str(e)
+            }
+            diagnostics['overall'] = 'FAIL: Erro ao criar cliente Supabase'
+            return jsonify(diagnostics), 500
+        
+        # Teste 4: Query na tabela
+        try:
+            response = client.table('chamados').select('*').limit(1).execute()
+            has_data = len(response.data) > 0
+            diagnostics['tests']['4_query_table'] = {
+                'status': 'PASS',
+                'message': f"{'Dados encontrados' if has_data else 'Tabela vazia'}",
+                'rows': len(response.data),
+                'columns': list(response.data[0].keys()) if has_data else []
+            }
+        except Exception as e:
+            diagnostics['tests']['4_query_table'] = {
+                'status': 'FAIL',
+                'message': str(e)
+            }
+            import traceback
+            diagnostics['tests']['4_query_table']['trace'] = traceback.format_exc()[-500:]
+            diagnostics['overall'] = 'FAIL: Erro ao consultar tabela chamados'
+            return jsonify(diagnostics), 500
+        
+        # Teste 5: Import pandas/numpy
+        try:
+            import pandas as pd
+            import numpy as np
+            diagnostics['tests']['5_data_libs'] = {
+                'status': 'PASS',
+                'message': f"pandas {pd.__version__}, numpy {np.__version__}"
+            }
+        except Exception as e:
+            diagnostics['tests']['5_data_libs'] = {
+                'status': 'FAIL',
+                'message': str(e)
+            }
+            diagnostics['overall'] = 'FAIL: Erro ao importar pandas/numpy'
+            return jsonify(diagnostics), 500
+        
+        diagnostics['overall'] = '✅ TODOS OS TESTES PASSARAM'
+        return jsonify(diagnostics), 200
+        
+    except Exception as e:
+        diagnostics['overall'] = f'❌ ERRO CRÍTICO: {str(e)}'
+        import traceback
+        diagnostics['traceback'] = traceback.format_exc()
+        return jsonify(diagnostics), 500
 
 
 @app.route('/api/health')
@@ -120,10 +227,18 @@ def get_chamados():
     Endpoint principal que retorna dados processados dos chamados
     Utiliza cache para otimizar performance
     """
+    print(f"\n{'='*60}")
+    print(f"🔵 Requisição /api/chamados iniciada")
+    print(f"{'='*60}")
+    
     try:
         # Verifica variáveis de ambiente críticas
         supabase_url = os.getenv('SUPABASE_URL')
         supabase_key = os.getenv('SUPABASE_KEY')
+        
+        print(f"🔍 Verificando variáveis de ambiente...")
+        print(f"  SUPABASE_URL: {'✅ SET' if supabase_url else '❌ NOT SET'}")
+        print(f"  SUPABASE_KEY: {'✅ SET' if supabase_key else '❌ NOT SET'}")
         
         if not supabase_url or not supabase_key:
             error_msg = f"Variáveis de ambiente faltando - URL: {bool(supabase_url)}, KEY: {bool(supabase_key)}"
@@ -131,7 +246,8 @@ def get_chamados():
             return jsonify({
                 'error': True,
                 'message': 'Configuração incompleta',
-                'details': error_msg
+                'details': error_msg,
+                'hint': 'Configure SUPABASE_URL e SUPABASE_KEY nas variáveis de ambiente da Vercel'
             }), 500
         
         # Verifica se pode usar cache
@@ -139,18 +255,75 @@ def get_chamados():
             print("📋 Dados servidos do cache")
             return jsonify(cache['data'])
         
-        print("🔄 Buscando dados atualizados do Supabase...")
+        print("🔄 Buscando dados do Supabase...")
         
-        # Cria cliente Supabase
-        supabase_client = create_supabase_client()
-        
-        # Processa dados da tabela chamados
-        data = supabase_client.process_chamados_data()
-        
-        # Atualiza cache
-        update_cache(data)
-        
-        print("✅ Dados processados e servidos com sucesso")
+        # MODO SIMPLIFICADO: Conecta direto sem usar supabase_client.py
+        try:
+            from supabase import create_client as supabase_create_client
+            print("✅ Módulo supabase importado")
+            
+            client = supabase_create_client(supabase_url, supabase_key)
+            print("✅ Cliente Supabase criado")
+            
+            # Query simples
+            response = client.table('chamados').select('*').execute()
+            print(f"✅ Query executada: {len(response.data)} registros")
+            
+            # Processamento MÍNIMO - apenas contar dados
+            total = len(response.data)
+            
+            # Conta status (simples, sem pandas)
+            status_counts = {}
+            for row in response.data:
+                status = str(row.get('status', 'desconhecido')).lower()
+                status_counts[status] = status_counts.get(status, 0) + 1
+            
+            abertos = status_counts.get('aberto', 0) + status_counts.get('em andamento', 0) + status_counts.get('pendente', 0)
+            fechados = status_counts.get('fechado', 0) + status_counts.get('resolvido', 0) + status_counts.get('concluído', 0)
+            
+            # Conta técnicos (simples)
+            tecnico_counts = {}
+            for row in response.data:
+                tecnico = row.get('tecnico', 'N/A')
+                tecnico_counts[tecnico] = tecnico_counts.get(tecnico, 0) + 1
+            
+            # Conta categorias (simples)
+            categoria_counts = {}
+            for row in response.data:
+                categoria = row.get('categoria', 'N/A')
+                categoria_counts[categoria] = categoria_counts.get(categoria, 0) + 1
+            
+            # Monta resposta simples
+            data = {
+                'total_chamados': total,
+                'total_abertos': abertos,
+                'total_fechados': fechados,
+                'tempo_medio_resolucao': 'N/A',
+                'chamados_por_tecnico': tecnico_counts,
+                'categorias': categoria_counts,
+                'tabela': response.data[:50],  # Primeiros 50
+                'insights': {
+                    'melhor_tecnico': f"🏆 {max(tecnico_counts.items(), key=lambda x: x[1])[0] if tecnico_counts else 'N/A'}",
+                    'categoria_predominante': f"📊 {max(categoria_counts.items(), key=lambda x: x[1])[0] if categoria_counts else 'N/A'}",
+                    'tendencia_satisfacao': 'Dados sendo processados...'
+                },
+                'ultima_atualizacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
+                'fonte': 'Supabase (modo simplificado)',
+                'debug_mode': True
+            }
+            
+            # Atualiza cache
+            update_cache(data)
+            
+            print("✅ Dados processados e retornados com sucesso")
+            print(f"{'='*60}\n")
+            return jsonify(data)
+            
+        except Exception as e:
+            print(f"❌ Erro no modo simplificado: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            raise
         return jsonify(data)
     
     except Exception as e:
