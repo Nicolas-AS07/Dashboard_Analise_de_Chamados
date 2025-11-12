@@ -282,10 +282,26 @@ class SupabaseIntegration:
 
 def create_supabase_client():
     """Factory function para criar cliente Supabase"""
-    url = os.getenv('SUPABASE_URL')
-    key = os.getenv('SUPABASE_KEY')
-    
-    if not url or not key:
-        raise Exception("SUPABASE_URL e SUPABASE_KEY devem estar configurados no .env")
-    
-    return SupabaseIntegration(url, key)
+    try:
+        url = os.getenv('SUPABASE_URL')
+        key = os.getenv('SUPABASE_KEY')
+        
+        print(f"🔑 Criando cliente Supabase...")
+        print(f"  - URL definida: {bool(url)}")
+        print(f"  - KEY definida: {bool(key)}")
+        
+        if not url or not key:
+            error_msg = f"SUPABASE_URL e SUPABASE_KEY devem estar configurados. URL: {bool(url)}, KEY: {bool(key)}"
+            print(f"❌ {error_msg}")
+            raise Exception(error_msg)
+        
+        print(f"✅ Criando instância de SupabaseIntegration...")
+        client = SupabaseIntegration(url, key)
+        print(f"✅ Cliente Supabase criado com sucesso")
+        return client
+        
+    except Exception as e:
+        print(f"❌ Erro ao criar cliente Supabase: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise

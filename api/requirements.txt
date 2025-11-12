@@ -5,10 +5,12 @@
 flask==2.3.3
 flask-cors==4.0.0
 python-dotenv==1.0.0
+gunicorn==21.2.0
 
 # Supabase Client (deixar pip resolver dependências)
 supabase==2.3.0
 
 # Data Processing (para análise e métricas)
-numpy>=1.26.0,<2.0
-pandas==2.1.1
+# Versões compatíveis com Python 3.9-3.12
+numpy==1.24.3
+pandas==2.0.3

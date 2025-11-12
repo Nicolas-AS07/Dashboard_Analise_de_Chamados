@@ -3,17 +3,35 @@ TechHelp Dashboard - API Flask
 Servidor backend para integração com Google Sheets e fornecimento de dados para o dashboard
 """
 import os
+import sys
 import json
 from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
-from supabase_client import create_supabase_client
+
+# Adiciona o diretório api ao path para imports funcionarem na Vercel
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    from supabase_client import create_supabase_client
+except ImportError as e:
+    print(f"❌ Erro ao importar supabase_client: {e}")
+    # Fallback: tenta importar diretamente
+    import supabase_client
+    create_supabase_client = supabase_client.create_supabase_client
 
 
 # Carrega variáveis de ambiente (produção usa variáveis da Vercel, desenvolvimento usa .env)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.normpath(os.path.join(BASE_DIR, '..', 'config', '.env'))
+
+# Diagnóstico inicial
+print(f"🔍 Diagnóstico do ambiente:")
+print(f"  - Python: {sys.version}")
+print(f"  - BASE_DIR: {BASE_DIR}")
+print(f"  - ENV_PATH: {ENV_PATH}")
+print(f"  - ENV_PATH existe: {os.path.exists(ENV_PATH)}")
 
 # Só tenta carregar .env se o arquivo existir (desenvolvimento local)
 if os.path.exists(ENV_PATH):
@@ -21,6 +39,13 @@ if os.path.exists(ENV_PATH):
     load_dotenv(dotenv_path=ENV_PATH, override=True)
 else:
     print(f"📦 Ambiente de produção - usando variáveis de ambiente do sistema")
+
+# Verifica variáveis críticas (sem expor valores)
+print(f"🔑 Variáveis de ambiente:")
+print(f"  - SUPABASE_URL: {'✅' if os.getenv('SUPABASE_URL') else '❌'}")
+print(f"  - SUPABASE_KEY: {'✅' if os.getenv('SUPABASE_KEY') else '❌'}")
+print(f"  - DATA_SOURCE: {os.getenv('DATA_SOURCE', 'não definido')}")
+print(f"  - FLASK_ENV: {os.getenv('FLASK_ENV', 'não definido')}")
 
 # Configuração da aplicação Flask
 app = Flask(__name__)
