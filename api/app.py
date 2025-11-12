@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from dotenv import load_dotenv
-from google_sheets import create_google_sheets_client
+from supabase_client import create_supabase_client
 
 
 # Carrega variáveis de ambiente a partir do caminho absoluto do arquivo
@@ -21,8 +21,8 @@ load_dotenv(dotenv_path=ENV_PATH, override=True)
 app = Flask(__name__)
 
 # Configuração CORS para permitir requisições do frontend
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8080').split(',')
-CORS(app, origins=cors_origins)
+cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8080,http://127.0.0.1:8000,http://localhost:8000').split(',')
+CORS(app, origins=cors_origins, resources={r"/api/*": {"origins": "*"}})
 
 # Cache simples em memória (para evitar muitas chamadas à API do Google)
 cache = {
@@ -65,12 +65,12 @@ def home():
 def health_check():
     """Endpoint de verificação de saúde da API"""
     try:
-        # Testa conexão com Google Sheets
-        sheets_client = create_google_sheets_client()
+        # Testa conexão com Supabase
+        supabase_client = create_supabase_client()
         
         return jsonify({
             'status': 'healthy',
-            'google_sheets': 'connected',
+            'supabase': 'connected',
             'cache_valid': is_cache_valid(),
             'timestamp': datetime.now().isoformat()
         })
@@ -79,7 +79,7 @@ def health_check():
         return jsonify({
             'status': 'unhealthy',
             'error': str(e),
-            'google_sheets': 'disconnected',
+            'supabase': 'disconnected',
             'timestamp': datetime.now().isoformat()
         }), 500
 
@@ -96,13 +96,13 @@ def get_chamados():
             print("📋 Dados servidos do cache")
             return jsonify(cache['data'])
         
-        print("🔄 Buscando dados atualizados do Google Sheets/Drive...")
+        print("🔄 Buscando dados atualizados do Supabase...")
         
-        # Cria cliente Google Sheets
-        sheets_client = create_google_sheets_client()
+        # Cria cliente Supabase
+        supabase_client = create_supabase_client()
         
-        # Processa dados da planilha
-        data = sheets_client.process_chamados_data()
+        # Processa dados da tabela chamados
+        data = supabase_client.process_chamados_data()
         
         # Atualiza cache
         update_cache(data)
@@ -113,7 +113,14 @@ def get_chamados():
     except Exception as e:
         error_message = str(e)
         print(f"❌ Erro no endpoint /api/chamados: {error_message}")
-        
+        # Dicas específicas quando falta permissão ou ID incorreto
+        hint = 'Verifique o ID do arquivo no Google Drive, permissões de compartilhamento com o e-mail do service account e o caminho para as credenciais.'
+        low = error_message.lower()
+        if 'permission' in low or 'not have permission' in low or '403' in low:
+            hint = 'Acesso negado ao arquivo. Compartilhe o arquivo no Drive com o e-mail da Service Account como Viewer.'
+        elif 'file not found' in low or '404' in low:
+            hint = 'Arquivo não encontrado. Confira o GOOGLE_SHEETS_ID.'
+
         # Retorna dados do cache se disponível, mesmo que expirado
         if cache['data'] is not None:
             print("⚠️ Retornando dados do cache (podem estar desatualizados)")
@@ -126,7 +133,7 @@ def get_chamados():
             'error': True,
             'message': 'Falha ao obter dados dos chamados',
             'details': error_message,
-            'hint': 'Verifique o ID do arquivo no Google Drive, permissões de compartilhamento com o e-mail do service account e o caminho para as credenciais.'
+            'hint': hint
         }), 500
 
 
@@ -144,8 +151,8 @@ def refresh_chamados():
         cache['timestamp'] = None
         
         # Busca dados atualizados
-        sheets_client = create_google_sheets_client()
-        data = sheets_client.process_chamados_data()
+        supabase_client = create_supabase_client()
+        data = supabase_client.process_chamados_data()
         
         # Atualiza cache
         update_cache(data)
@@ -170,11 +177,41 @@ def refresh_chamados():
 def get_config():
     """Endpoint para retornar configurações públicas da aplicação"""
     return jsonify({
-        'sheets_id': os.getenv('GOOGLE_SHEETS_ID', 'não configurado'),
+        'supabase_url': os.getenv('SUPABASE_URL', 'não configurado')[:30] + '...' if os.getenv('SUPABASE_URL') else 'não configurado',
         'cache_timeout': cache['timeout'],
         'environment': os.getenv('FLASK_ENV', 'production'),
-        'cors_origins': cors_origins
+        'cors_origins': cors_origins,
+        'data_source': 'Supabase'
     })
+
+
+@app.route('/api/diagnostics')
+def diagnostics():
+    """Endpoint de diagnóstico detalhado da integração com Supabase."""
+    try:
+        supabase_client = create_supabase_client()
+        diag = supabase_client.get_diagnostics()
+
+        # Dica se falhar na conexão
+        hint = None
+        if not diag.get('connected'):
+            hint = diag.get('hint', 'Verifique SUPABASE_URL e SUPABASE_KEY no .env')
+
+        return jsonify({
+            'status': 'ok' if diag.get('connected') and diag.get('table_exists') else 'partial',
+            'env': {
+                'supabase_url_set': os.getenv('SUPABASE_URL') is not None,
+                'supabase_key_set': os.getenv('SUPABASE_KEY') is not None,
+            },
+            'diagnostics': diag,
+            'hint': hint
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': 'Falha ao obter diagnósticos',
+            'error': str(e)
+        }), 500
 
 
 @app.errorhandler(404)
@@ -209,7 +246,8 @@ if __name__ == '__main__':
     port = int(os.getenv('PORT', 5000))
     
     print("🚀 Iniciando TechHelp Dashboard API...")
-    print(f"📊 Google Sheets ID: {os.getenv('GOOGLE_SHEETS_ID', 'não configurado')}")
+    print(f"📊 Fonte de dados: Supabase")
+    print(f"🔗 Supabase URL: {os.getenv('SUPABASE_URL', 'não configurado')[:40]}...")
     print(f"🌐 Porta: {port}")
     print(f"🔧 Debug: {debug_mode}")
     print(f"⏱️ Cache timeout: {cache['timeout']}s")

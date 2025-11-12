@@ -240,6 +240,58 @@ class GoogleSheetsIntegration:
         except Exception as e:
             print(f"❌ Erro no processamento: {str(e)}")
             raise
+
+    def get_diagnostics(self) -> Dict[str, Any]:
+        """Coleta diagnósticos da integração (env, credenciais, acesso ao Drive/Sheets, headers)."""
+        diag: Dict[str, Any] = {
+            'sheets_id': self.sheets_id,
+            'credentials_path': self.credentials_path,
+            'credentials_exists': os.path.exists(self.credentials_path) if self.credentials_path else False,
+            'service_account_email': getattr(self.creds, 'service_account_email', None),
+            'drive_access': {'ok': False},
+            'file': {},
+            'headers': [],
+            'sample_rows': 0
+        }
+
+        try:
+            meta = self._get_drive_file_metadata(self.sheets_id)
+            if meta:
+                diag['file'] = {'name': meta.get('name'), 'mimeType': meta.get('mimeType')}
+            else:
+                diag['file'] = {'name': None, 'mimeType': None, 'note': 'metadados indisponíveis (sem acesso?)'}
+        except Exception as e:
+            diag['file_error'] = str(e)
+
+        # Tenta ler somente cabeçalhos sem processar tudo
+        try:
+            file_meta = diag.get('file', {})
+            mime = file_meta.get('mimeType') or ''
+            # Excel no Drive
+            if mime in [
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-excel'
+            ] or (file_meta.get('name') or '').lower().endswith(('.xlsx', '.xls')):
+                bytes_io = self._download_drive_file(self.sheets_id)
+                excel = pd.read_excel(bytes_io, sheet_name=0, nrows=5, engine='openpyxl')
+                excel.columns = [self._normalize_column_name(c) for c in excel.columns]
+                diag['headers'] = list(excel.columns)
+                diag['sample_rows'] = len(excel)
+                diag['drive_access']['ok'] = True
+            else:
+                # Tenta como Google Sheets
+                ss = self.gc.open_by_key(self.sheets_id)
+                ws = ss.sheet1
+                values = ws.get_all_values()
+                if values:
+                    headers = [self._normalize_column_name(h) for h in values[0]]
+                    diag['headers'] = headers
+                    diag['sample_rows'] = min(5, max(0, len(values) - 1))
+                diag['drive_access']['ok'] = True
+        except Exception as e:
+            diag['drive_access'] = {'ok': False, 'error': str(e)}
+
+        return diag
     
     def _convert_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """Converte colunas para tipos de dados apropriados"""

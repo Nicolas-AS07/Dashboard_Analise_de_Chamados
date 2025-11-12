@@ -1,2 +1,0 @@
-# Runtime para Render/Railway
-python-3.11.0
