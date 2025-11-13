@@ -1,16 +1,12 @@
 # Backend API - Dashboard de Chamados
-# Supabase como única fonte de dados
+# Versão MÍNIMA para funcionar na Vercel
 
 # Web Framework
-flask==2.3.3
-flask-cors==4.0.0
-python-dotenv==1.0.0
-gunicorn==21.2.0
+Flask==2.3.3
+Flask-Cors==4.0.0
 
-# Supabase Client (deixar pip resolver dependências)
+# Supabase Client
 supabase==2.3.0
 
-# Data Processing (para análise e métricas)
-# Versões compatíveis com Python 3.9-3.12
-numpy==1.24.3
-pandas==2.0.3
+# REMOVIDO pandas e numpy - não são necessários para versão simplificada
+# O processamento agora é feito com Python puro
