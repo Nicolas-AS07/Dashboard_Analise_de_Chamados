@@ -1,160 +1,157 @@
 """
-TechHelp Dashboard API - Versão Serverless MÍNIMA
-Criado especificamente para Vercel - SEM dependências pesadas
+TechHelp Dashboard API - Versão Serverless para Vercel
 """
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify
 from flask_cors import CORS
 import os
 from datetime import datetime
 
-# Cria app Flask
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app)
 
-# Cache global
-_cache = {'data': None, 'timestamp': None}
+# Cache simples
+_cache = {'data': None, 'ts': None}
 
 
 @app.route('/')
+@app.route('/api')
 def home():
     return jsonify({
         'name': 'TechHelp Dashboard API',
-        'version': '2.0-serverless',
+        'version': '2.0',
         'status': 'online',
-        'timestamp': datetime.now().isoformat()
+        'endpoints': ['/api/health', '/api/test', '/api/chamados']
     })
 
 
 @app.route('/api/health')
 def health():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+    return jsonify({'status': 'healthy'})
 
 
 @app.route('/api/test')
 def test():
-    """Diagnóstico completo"""
-    result = {
-        'timestamp': datetime.now().isoformat(),
-        'tests': {}
+    """Diagnóstico"""
+    result = {'tests': {}, 'timestamp': datetime.now().isoformat()}
+    
+    # Teste variáveis
+    url = os.getenv('SUPABASE_URL')
+    key = os.getenv('SUPABASE_KEY')
+    result['tests']['env'] = {
+        'url': '✅' if url else '❌',
+        'key': '✅' if key else '❌'
     }
     
-    # Teste 1: Variáveis de ambiente
-    has_url = bool(os.getenv('SUPABASE_URL'))
-    has_key = bool(os.getenv('SUPABASE_KEY'))
-    result['tests']['env_vars'] = {
-        'url': '✅' if has_url else '❌',
-        'key': '✅' if has_key else '❌'
-    }
-    
-    if not has_url or not has_key:
-        result['error'] = 'FALTAM VARIÁVEIS DE AMBIENTE'
+    if not url or not key:
+        result['error'] = 'Variáveis de ambiente não configuradas'
         return jsonify(result), 500
     
-    # Teste 2: Import Supabase
+    # Teste import
     try:
         from supabase import create_client
-        result['tests']['import_supabase'] = '✅'
+        result['tests']['import'] = '✅'
     except Exception as e:
-        result['tests']['import_supabase'] = f'❌ {str(e)}'
-        result['error'] = 'FALHA AO IMPORTAR SUPABASE'
+        result['tests']['import'] = f'❌ {e}'
         return jsonify(result), 500
     
-    # Teste 3: Criar cliente
+    # Teste conexão
     try:
-        client = create_client(os.getenv('SUPABASE_URL'), os.getenv('SUPABASE_KEY'))
-        result['tests']['create_client'] = '✅'
+        client = create_client(url, key)
+        result['tests']['client'] = '✅'
     except Exception as e:
-        result['tests']['create_client'] = f'❌ {str(e)}'
-        result['error'] = 'FALHA AO CRIAR CLIENTE'
+        result['tests']['client'] = f'❌ {e}'
         return jsonify(result), 500
     
-    # Teste 4: Query
+    # Teste query
     try:
-        response = client.table('chamados').select('*').limit(1).execute()
-        result['tests']['query'] = f"✅ {len(response.data)} registros"
+        res = client.table('chamados').select('*').limit(1).execute()
+        result['tests']['query'] = f'✅ {len(res.data)} rows'
+        result['sample'] = res.data[0] if res.data else None
     except Exception as e:
-        result['tests']['query'] = f'❌ {str(e)}'
-        result['error'] = 'FALHA NA QUERY'
+        result['tests']['query'] = f'❌ {e}'
         return jsonify(result), 500
     
-    result['status'] = '✅ TODOS TESTES PASSARAM'
-    return jsonify(result), 200
+    result['status'] = 'ALL PASS'
+    return jsonify(result)
 
 
 @app.route('/api/chamados')
 def get_chamados():
-    """Endpoint principal - versão simplificada"""
+    """Dados dos chamados"""
     try:
-        # Verifica variáveis
+        # Verifica env
         url = os.getenv('SUPABASE_URL')
         key = os.getenv('SUPABASE_KEY')
         
         if not url or not key:
             return jsonify({
                 'error': True,
-                'message': 'Variáveis de ambiente não configuradas',
-                'hint': 'Configure SUPABASE_URL e SUPABASE_KEY na Vercel'
+                'message': 'Variáveis não configuradas'
             }), 500
         
-        # Verifica cache (5 minutos)
-        if _cache['data'] and _cache['timestamp']:
-            age = (datetime.now() - _cache['timestamp']).seconds
-            if age < 300:
+        # Cache (5min)
+        now = datetime.now()
+        if _cache['data'] and _cache['ts']:
+            if (now - _cache['ts']).seconds < 300:
                 return jsonify(_cache['data'])
         
-        # Importa e conecta
+        # Busca dados
         from supabase import create_client
         client = create_client(url, key)
-        
-        # Busca dados
         response = client.table('chamados').select('*').execute()
         data = response.data
         
-        # Processa com Python puro (SEM pandas)
+        if not data:
+            return jsonify({
+                'error': True,
+                'message': 'Nenhum dado encontrado na tabela'
+            }), 404
+        
+        # Processa
         total = len(data)
         
-        # Conta status
-        status_count = {}
-        for row in data:
-            s = str(row.get('status', 'desconhecido')).lower()
-            status_count[s] = status_count.get(s, 0) + 1
+        # Status
+        status = {}
+        for r in data:
+            s = str(r.get('status', '')).lower().strip()
+            status[s] = status.get(s, 0) + 1
         
-        abertos = sum(status_count.get(k, 0) for k in ['aberto', 'em andamento', 'pendente'])
-        fechados = sum(status_count.get(k, 0) for k in ['fechado', 'resolvido', 'concluído', 'concluido'])
+        abertos = sum(status.get(k, 0) for k in ['aberto', 'em andamento', 'pendente'])
+        fechados = sum(status.get(k, 0) for k in ['fechado', 'resolvido', 'concluído', 'concluido'])
         
-        # Conta técnicos
-        tecnico_count = {}
-        for row in data:
-            t = row.get('tecnico', 'N/A')
-            tecnico_count[t] = tecnico_count.get(t, 0) + 1
+        # Técnicos
+        tecnicos = {}
+        for r in data:
+            t = r.get('tecnico') or 'N/A'
+            tecnicos[t] = tecnicos.get(t, 0) + 1
         
-        # Conta categorias
-        cat_count = {}
-        for row in data:
-            c = row.get('categoria', 'N/A')
-            cat_count[c] = cat_count.get(c, 0) + 1
+        # Categorias
+        cats = {}
+        for r in data:
+            c = r.get('categoria') or 'N/A'
+            cats[c] = cats.get(c, 0) + 1
         
-        # Monta resultado
+        # Resultado
         result = {
             'total_chamados': total,
             'total_abertos': abertos,
             'total_fechados': fechados,
             'tempo_medio_resolucao': 'N/A',
-            'chamados_por_tecnico': tecnico_count,
-            'categorias': cat_count,
+            'chamados_por_tecnico': tecnicos,
+            'categorias': cats,
             'tabela': data[:100],
             'insights': {
-                'melhor_tecnico': max(tecnico_count.items(), key=lambda x: x[1])[0] if tecnico_count else 'N/A',
-                'categoria_predominante': max(cat_count.items(), key=lambda x: x[1])[0] if cat_count else 'N/A',
-                'tendencia_satisfacao': 'Processando...'
+                'melhor_tecnico': max(tecnicos.items(), key=lambda x: x[1])[0] if tecnicos else 'N/A',
+                'categoria_predominante': max(cats.items(), key=lambda x: x[1])[0] if cats else 'N/A',
+                'tendencia_satisfacao': 'OK'
             },
-            'ultima_atualizacao': datetime.now().strftime('%d/%m/%Y %H:%M'),
+            'ultima_atualizacao': now.strftime('%d/%m/%Y %H:%M'),
             'fonte': 'Supabase'
         }
         
-        # Atualiza cache
+        # Cache
         _cache['data'] = result
-        _cache['timestamp'] = datetime.now()
+        _cache['ts'] = now
         
         return jsonify(result)
         
@@ -163,10 +160,5 @@ def get_chamados():
         return jsonify({
             'error': True,
             'message': str(e),
-            'trace': traceback.format_exc()
+            'traceback': traceback.format_exc()
         }), 500
-
-
-# Handler para Vercel
-def handler(request):
-    return app(request.environ, lambda *args: None)
